@@ -5,10 +5,13 @@ from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+from datetime import datetime, timedelta,timezone
 
 # If modifying these scopes, delete the file token.json.
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
+yesterday = int(datetime.now(timezone.utc).timestamp() - (24*60*60))
+tommorow = int(datetime.now(timezone.utc).timestamp() + (24*60*60))
 
 def main():
   """Shows basic usage of the Gmail API.
@@ -37,7 +40,7 @@ def main():
     # Call the Gmail API
     service = build("gmail", "v1", credentials=creds)
     results = (
-            service.users().messages().list(userId="me", labelIds=["INBOX"]).execute()
+            service.users().messages().list(userId="me", labelIds=["INBOX"], q=f"after:{yesterday} before:{tommorow}").execute()
         )
     messages = results.get("messages", [])
 
@@ -45,13 +48,14 @@ def main():
         print("No messages found.")
         return
 
-    print("Messages:")
-    for message in messages:
-            print(f'Message ID: {message["id"]}')
-            msg = (
-                service.users().messages().get(userId="me", id=message["id"]).execute()
-            )
-            print(f'  Subject: {msg["snippet"]}')
+    
+    #print("Messages:")
+    #for message in messages:
+    #        print(f'Message ID: {message["id"]}')
+    #        msg = (
+    #            service.users().messages().get(userId="me", id=message["id"]).execute()
+    #        )
+    #        print(f'  Subject: {msg["snippet"]}')
 
   except HttpError as error:
     # TODO(developer) - Handle errors from gmail API.

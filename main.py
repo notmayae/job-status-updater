@@ -13,11 +13,14 @@ from bs4 import BeautifulSoup
 from google.genai import types
 import pathlib
 import json
+from const import candidate_profile_system_instruction, jobs_emails_system_instruction
 
-# If modifying these scopes, delete the file token.json.
-SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
-yesterday = int(datetime.now(timezone.utc).timestamp() - (24*60*60))
+SCOPES = ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/spreadsheets"]
+
+SAMPLE_SPREADSHEET_ID = "1TluyGAYp0lFlUn6Av64McGfeQ7AYf5JsZQ6XNCoMK_U"
+
+yesterday = int(datetime.now(timezone.utc).timestamp() - (72*60*60))
 tommorow = int(datetime.now(timezone.utc).timestamp() + (24*60*60))
 load_dotenv()
 api_key = os.getenv("GEMINI_API_KEY")
@@ -26,10 +29,8 @@ client = genai.Client(api_key=api_key)
 def get_candidate_profile():
     resume_path=os.getenv("RESUME_PATH")
     resume_data = pathlib.Path(resume_path)
-   # response=client.models.list(config={'page_size': 5, 'query_base': True})
-   # print(response.page)
+
     prompt = "Please analyze the following resume and generate the Market Persona according to your instructions."
-     
     response = client.models.generate_content(
             model="gemini-2.5-flash", 
             contents=[
@@ -38,53 +39,22 @@ def get_candidate_profile():
                     mime_type='application/pdf',
                 ),
             prompt],
-            config=types.GenerateContentConfig(system_instruction="""
-You are an expert Technical Recruiter and Compensation Analyst. Your task is to perform a deep analysis of a candidate's resume to build a structured 'Market Persona' in JSON format.
-
-Analysis Dimensions:
-
-Core Technical Domain: Identify the primary field and specific sub-niches of expertise.
-
-Technical Proficiency Depth: Distinguish between 'knowledge of tools' and 'mastery of architectures.'
-
-Effective Seniority Level: Determine seniority based on the complexity and impact of projects rather than years alone (Entry, Associate, Mid-Level, Senior, Staff/Lead).
-
-Key Performance Indicators (KPIs): Extract the primary metrics the candidate has influenced.
-
-Market Valuation (Baseline): Estimate a localized competitive baseline salary range based on current market rates for this specific seniority and domain. Specify the currency.
-
-Notes: Any special strategic notes worth mentioning.
-
-Constraint: Output ONLY a valid JSON object. Do not include markdown formatting or conversational text. You MUST use the following exact JSON schema:
-{
-"domain": "string",
-"technical_depth": "string",
-"seniority": "string",
-"kpis": ["array of strings"],
-"market_valuation": {"currency": "string", "baseline_range": "string", "basis": "string"},
-"notes": "string",
-"summary": "A concise, objective summary (max 200 words) of the candidate's market value. No names or contact info."
-}""",
+            config=types.GenerateContentConfig(system_instruction=candidate_profile_system_instruction,
                temperature=0.2, 
                response_mime_type="application/json")
             )
     with open("candidate_profile.json", 'w') as f:
-        json.dump(response.text,f)
+        json.dump(json.loads(response.text),f)
     
     return response.text
 
 
 def main():
-  """Shows basic usage of the Gmail API.
-  Lists the user's Gmail labels.
-  """
   creds = None
-  # The file token.json stores the user's access and refresh tokens, and is
-  # created automatically when the authorization flow completes for the first
-  # time.
+
   if os.path.exists("token.json"):
     creds = Credentials.from_authorized_user_file("token.json", SCOPES)
-  # If there are no (valid) credentials available, let the user log in.
+
   if not creds or not creds.valid:
     if creds and creds.expired and creds.refresh_token:
       creds.refresh(Request())
@@ -93,7 +63,7 @@ def main():
           "credentials.json", SCOPES
       )
       creds = flow.run_local_server(port=0)
-    # Save the credentials for the next run
+
     with open("token.json", "w") as token:
       token.write(creds.to_json())
 
@@ -107,12 +77,120 @@ def main():
 
   try:
     # Call the Gmail API
-    service = build("gmail", "v1", credentials=creds)
+    gmail_service = build("gmail", "v1", credentials=creds)
     results = (
-            service.users().messages().list(userId="me", labelIds=["INBOX"], q=f"after:{yesterday} before:{tommorow}").execute()
+            gmail_service.users().messages().list(userId="me", labelIds=["INBOX"], q=f"after:{yesterday} before:{tommorow}").execute()
         )
     messages_id = results.get("messages", [])
+    if messages_id is not None:
+        messages_chunks = get_gmail_messages(gmail_service, messages_id)
+        api_responses =[]
+        sheets_service = build("sheets", "v4", credentials=creds)
+        sheet = sheets_service.spreadsheets()
+        #result = (
+        #    sheet.values().get(spreadsheetId=SAMPLE_SPREADSHEET_ID, range="Sheet1").execute()
+        #)
+        #values = result.get("values", [])
+        
+        for chunks in messages_chunks:
+            formatted_emails = "\n\n".join([f"--- EMAIL {i+1} ---\n{text}" for i, text in enumerate(chunks)])
+            response = client.models.generate_content(
+                model="gemini-2.5-flash", 
+                contents=f"""
+                    CANDIDATE PERSONA: {candidate_profile}
+                    EMAIL BATCH: {formatted_emails}
+                            """, 
+                config=types.GenerateContentConfig(system_instruction = jobs_emails_system_instruction,
+                                                temperature=0.1, response_mime_type="application/json")
 
+            )
+            jobs_responses = json.loads(response.text)
+
+            for job in jobs_responses:
+                if job['status'] == 'Applied':
+                    append_new_application(sheet, job)
+                else:
+                    result = (
+                        sheet.values().get(spreadsheetId=SAMPLE_SPREADSHEET_ID, range="Sheet1").execute()
+                    )
+                    table_values = result.get("values", [])
+                    company_applications = []
+                    
+                    for value in table_values:
+                        if job['company'] in value:
+                          company_applications.append({job['company']: table_values.index(value)})
+                    if not company_applications:
+                       append_new_application(sheet=sheet, job=job)
+                       break
+                    
+                    if len(company_applications) > 1:
+                        value_changed = False
+                        for application in company_applications:
+                            table_row = application.get(job['company']) 
+                            if job['job'] == table_values[table_row][0]:
+                                sheet.values().update(
+                                    spreadsheetId=SAMPLE_SPREADSHEET_ID,
+                                    range=f"Sheet1!A{table_row+1}",
+                                    valueInputOption="RAW",
+                                    body={"values": [[job['status']]]}
+                                ).execute()
+                                value_changed = True
+
+                        if value_changed is False:
+                          append_new_application(sheet,job)
+                    else:
+                        table_row = company_applications[0].get(job['company'])
+                        sheet.values().update(
+                            spreadsheetId=SAMPLE_SPREADSHEET_ID,
+                            range=f"Sheet1!C{table_row+1}",
+                            valueInputOption="RAW",
+                            body={"values": [[job['status']]]}
+                            ).execute()                    
+
+            print(jobs_responses)
+
+  except HttpError as error:
+    print(f"An error occurred: {error}")
+
+def append_new_application(sheet, job):
+    body = {"values": [[
+        job["job"],
+        job["company"],
+        job["status"],
+        job["est_salary"],
+        job["fit_score"],
+        job["logic"]
+    ]]}
+    result = (            
+        sheet.values().append(spreadsheetId=SAMPLE_SPREADSHEET_ID, range="A1", valueInputOption="USER_ENTERED", body=body).execute()
+    )
+    metadata_result = (sheet.get(spreadsheetId=SAMPLE_SPREADSHEET_ID).execute())
+    table_prop = metadata_result["sheets"][0]['tables'][0]
+    request_body = {
+                        "requests": [
+                            {
+                                "updateTable": {
+                                    "table": {
+                                        "tableId": table_prop['tableId'], # Retrieve this from spreadsheet metadata
+                                        "range": {         
+                                            "startRowIndex": table_prop['range']['startRowIndex'],    # Top row (0-indexed)
+                                            "endRowIndex": table_prop['range']['endRowIndex']+1,     # Bottom row (exclusive)
+                                            "startColumnIndex": table_prop['range']['startColumnIndex'], # Left column (0-indexed)
+                                            "endColumnIndex": table_prop['range']['endColumnIndex']    # Right column (exclusive)
+                                        }
+                                    },
+                                    "fields": "range" # Specify that only the 'range' field should be updated
+                                }
+                            }
+                        ]
+                    }
+
+    sheet.batchUpdate(
+                        spreadsheetId=SAMPLE_SPREADSHEET_ID,
+                        body=request_body
+                    ).execute()
+
+def get_gmail_messages(service, messages_id):
     if not messages_id:
         print("No messages found.")
         return
@@ -134,33 +212,7 @@ def main():
 
     chunk_size = 10
     messages_chunks = [messages_body[i:i + chunk_size] for i in range(0, len(messages_body), chunk_size)]
-
-    #for chunks in messages_chunks:
-    #    response = client.models.generate_content(
-    #        model="gemini-1.5-flash-preview", 
-    #        contents="", 
-    #        config=types.GenerateContentConfig(system_instruction = """
-    #                                            Task: Extract job application status from emails.
-    #                                            Format: Return ONLY a JSON array.
-    #                                            Schema: [{"job": str, "company": str, "status": enum["Applied", "Interview/In Progress", "Rejected", "Other"], "Est. Salary Range": str}]
-    #                                            Rule: If an email is not job-related ignore it.
-    #                                            """
-    #                                           temperature=0.1, response_mime_type="application/json")
-
-    #    )
-    #print(messages_body)
-
-    #print("Messages:")
-    #for message in messages:
-    #        print(f'Message ID: {message["id"]}')
-    #        msg = (
-    #            service.users().messages().get(userId="me", id=message["id"]).execute()
-    #        )
-    #        print(f'  Subject: {msg["snippet"]}')
-
-  except HttpError as error:
-    # TODO(developer) - Handle errors from gmail API.
-    print(f"An error occurred: {error}")
+    return messages_chunks
 
 
 if __name__ == "__main__":

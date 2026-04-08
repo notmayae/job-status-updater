@@ -1,4 +1,5 @@
 import os.path
+import logging
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -15,6 +16,11 @@ import pathlib
 import json
 from const import candidate_profile_system_instruction, jobs_emails_system_instruction
 
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/spreadsheets"]
 
@@ -140,7 +146,7 @@ def update_existing_application(sheet, job, table_values, company_applications):
                 value_changed = True
 
         if value_changed is False:
-          append_new_application(sheet,job)
+          logging.warning("Could not find job role for '%s' (status: %s). Email may not contain job title.", job['company'], job['status'])
     else:
         table_row = company_applications[0].get(job['company'])
         sheet.values().update(

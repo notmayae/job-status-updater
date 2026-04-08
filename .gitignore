@@ -7,3 +7,4 @@ credentials.json
 .venv
 token.json
 candidate_profile.json
+.DS_Store

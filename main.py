@@ -84,13 +84,8 @@ def main():
     messages_id = results.get("messages", [])
     if messages_id is not None:
         messages_chunks = get_gmail_messages(gmail_service, messages_id)
-        api_responses =[]
         sheets_service = build("sheets", "v4", credentials=creds)
         sheet = sheets_service.spreadsheets()
-        #result = (
-        #    sheet.values().get(spreadsheetId=SAMPLE_SPREADSHEET_ID, range="Sheet1").execute()
-        #)
-        #values = result.get("values", [])
         
         for chunks in messages_chunks:
             formatted_emails = "\n\n".join([f"--- EMAIL {i+1} ---\n{text}" for i, text in enumerate(chunks)])
@@ -123,34 +118,37 @@ def main():
                        append_new_application(sheet=sheet, job=job)
                        break
                     
-                    if len(company_applications) > 1:
-                        value_changed = False
-                        for application in company_applications:
-                            table_row = application.get(job['company']) 
-                            if job['job'] == table_values[table_row][0]:
-                                sheet.values().update(
-                                    spreadsheetId=SAMPLE_SPREADSHEET_ID,
-                                    range=f"Sheet1!A{table_row+1}",
-                                    valueInputOption="RAW",
-                                    body={"values": [[job['status']]]}
-                                ).execute()
-                                value_changed = True
-
-                        if value_changed is False:
-                          append_new_application(sheet,job)
-                    else:
-                        table_row = company_applications[0].get(job['company'])
-                        sheet.values().update(
-                            spreadsheetId=SAMPLE_SPREADSHEET_ID,
-                            range=f"Sheet1!C{table_row+1}",
-                            valueInputOption="RAW",
-                            body={"values": [[job['status']]]}
-                            ).execute()                    
+                    update_existing_application(sheet, job, table_values, company_applications)
 
             print(jobs_responses)
 
   except HttpError as error:
     print(f"An error occurred: {error}")
+
+def update_existing_application(sheet, job, table_values, company_applications):
+    if len(company_applications) > 1:
+        value_changed = False
+        for application in company_applications:
+            table_row = application.get(job['company']) 
+            if job['job'] == table_values[table_row][0]:
+                sheet.values().update(
+                                    spreadsheetId=SAMPLE_SPREADSHEET_ID,
+                                    range=f"Sheet1!A{table_row+1}",
+                                    valueInputOption="RAW",
+                                    body={"values": [[job['status']]]}
+                                ).execute()
+                value_changed = True
+
+        if value_changed is False:
+          append_new_application(sheet,job)
+    else:
+        table_row = company_applications[0].get(job['company'])
+        sheet.values().update(
+                            spreadsheetId=SAMPLE_SPREADSHEET_ID,
+                            range=f"Sheet1!C{table_row+1}",
+                            valueInputOption="RAW",
+                            body={"values": [[job['status']]]}
+                            ).execute()
 
 def append_new_application(sheet, job):
     body = {"values": [[

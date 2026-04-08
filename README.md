@@ -9,7 +9,7 @@ Runs on a cron schedule inside Docker (08:00, 13:00, 18:00 daily).
 ## How it works
 
 1. Fetches recent emails from your Gmail inbox
-2. Filters out marketing/newsletter emails
+2. Filters out marketing/newsletter emails — but preserves emails from known job platforms (e.g. LinkedIn application confirmations) based on sender domain and subject patterns defined in `const.py`
 3. Sends the remaining emails + your resume profile to Gemini for classification
 4. Gemini identifies job-related emails and returns: company, role, status, estimated salary, and fit score
 5. New applications are appended to the Google Sheet; existing ones have their status updated
@@ -143,3 +143,4 @@ docker exec <container_id> tail -f /var/log/cron.log
 | Gemini model | `main.py` → `model="gemini-2.5-flash"` (appears twice) |
 | Resume classification prompt | `const.py` → `candidate_profile_system_instruction` |
 | Email classification prompt | `const.py` → `jobs_emails_system_instruction` |
+| Job platform email filters | `const.py` → `JOB_EMAIL_PATTERNS` (add sender domains and subject patterns) |

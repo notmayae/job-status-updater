@@ -15,7 +15,7 @@ from google.genai import types
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 
-from const import candidate_profile_system_instruction, jobs_emails_system_instruction
+from const import candidate_profile_system_instruction, jobs_emails_system_instruction, JOB_EMAIL_PATTERNS
 
 # ---------------------------------------------------------------------------
 # Logging setup — format includes timestamp and level so cron log is readable
@@ -218,9 +218,18 @@ def get_gmail_messages(service, messages_id: list) -> list:
 
             body = base64.urlsafe_b64decode(data).decode("utf-8")
 
-            # Skip marketing/newsletter emails
+            # Skip emails that contain "unsubscribe" (marketing/newsletters),
+            # unless the sender matches a known job platform AND the subject
+            # matches one of its known application-related patterns.
+            # Platform patterns are defined in const.py → JOB_EMAIL_PATTERNS.
             if "unsubscribe" in body.lower():
-                continue
+                headers = {h["name"].lower(): h["value"] for h in payload.get("headers", [])}
+                sender = headers.get("from", "").lower()
+                subject = headers.get("subject", "").lower()
+
+                domain = next((d for d in JOB_EMAIL_PATTERNS if d in sender), None)
+                if not domain or not any(p in subject for p in JOB_EMAIL_PATTERNS[domain]):
+                    continue
 
             messages_body.append(BeautifulSoup(body, features="html.parser").get_text())
 

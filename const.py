@@ -1,3 +1,16 @@
+# ---------------------------------------------------------------------------
+# Email filtering — unsubscribe emails are skipped unless the sender domain
+# matches an entry here AND the subject contains one of its known patterns.
+#
+# Add new platforms or patterns here as needed.
+# Keys: sender domain (lowercase). Values: list of subject substrings (lowercase).
+# ---------------------------------------------------------------------------
+JOB_EMAIL_PATTERNS = {
+    "linkedin.com": ["your application"],
+    # "greenhouse.io": ["application received", "thank you for applying"],
+    # "lever.co": ["application received"],
+}
+
 candidate_profile_system_instruction="""
 
 You are an expert Technical Recruiter and Compensation Analyst. Your task is to perform a deep analysis of a candidate's resume to build a structured 'Market Persona' in JSON format.

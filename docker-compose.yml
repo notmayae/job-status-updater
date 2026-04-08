@@ -1,0 +1,14 @@
+services:
+  job-tracker:
+    build: .
+    env_file: .env
+    volumes:
+      # Mount your local resume into the container at a fixed path.
+      # Set LOCAL_RESUME_PATH in .env to the absolute path of your resume on this machine.
+      # Set RESUME_PATH=/app/resume.pdf in .env so the script finds it inside the container.
+      - ${LOCAL_RESUME_PATH}:/app/resume.pdf:ro
+
+      # Persist the generated candidate profile so it survives container rebuilds.
+      # The file is auto-created on first run — no action needed.
+      - ./candidate_profile.json:/app/candidate_profile.json
+    restart: unless-stopped

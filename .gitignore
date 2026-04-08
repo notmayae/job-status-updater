@@ -1,10 +1,6 @@
 .env
 .DS_Store
-token.json
-credentials.json
-candidate_profile.json
-credentials.json
 .venv
 token.json
+credentials.json
 candidate_profile.json
-.DS_Store

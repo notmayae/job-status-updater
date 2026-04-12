@@ -139,7 +139,8 @@ docker exec <container_id> tail -f /var/log/cron.log
 |---|---|
 | Google Spreadsheet ID | `.env` → `SPREADSHEET_ID` |
 | Email lookback window | `.env` → `LOOKBACK_DAYS` |
-| Cron schedule | `Dockerfile` → the `echo "0 8,13,18 * * *..."` line |
+| Timezone | `Dockerfile` → `ENV TZ=Asia/Jerusalem` (uses IANA timezone names) |
+| Cron schedule | `Dockerfile` → the `echo "0 8,13,18 * * *..."` line (runs in local time) |
 | Gemini model | `main.py` → `model="gemini-2.5-flash"` (appears twice) |
 | Resume classification prompt | `const.py` → `candidate_profile_system_instruction` |
 | Email classification prompt | `const.py` → `jobs_emails_system_instruction` |

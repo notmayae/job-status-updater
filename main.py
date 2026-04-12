@@ -179,9 +179,9 @@ def append_new_application(sheet, job: dict) -> None:
             job["job"],
             job["company"],
             job["status"],
-            job["est_salary"],
-            job["fit_score"],
-            job["logic"],
+            job.get("est_salary", ""),
+            job.get("fit_score", ""),
+            job.get("logic", ""),
         ]]
     }
 
@@ -378,7 +378,20 @@ def main():
                 continue
             logging.info("Gemini returned %d job entries from this batch.", len(jobs_responses))
 
+            # Vague company names Gemini returns when it can't identify the sender
+            vague_companies = {"unknown", "unknown company", "n/a", "not specified", "unspecified"}
+
             for job in jobs_responses:
+                # If Gemini couldn't determine the company, log email metadata so
+                # the user can find the original email manually and handle it
+                if job["company"].strip().lower() in vague_companies:
+                    logging.warning(
+                        "Could not identify company from email. "
+                        "From: %s | Subject: %s",
+                        job.get("email_from", "unknown"),
+                        job.get("email_subject", "unknown"),
+                    )
+                    continue
                 if job["status"] == "Applied":
                     # Before appending, check if this job+company already exists in the sheet
                     # to avoid duplicates from multiple confirmation emails (e.g. LinkedIn)
@@ -425,15 +438,12 @@ def main():
                     ]
 
                     if not company_applications:
-                        # Company not in sheet — log email metadata so the user can find
-                        # the original email manually and add it to the sheet if needed.
+                        # Company identified but not in sheet — append it so it's visible
                         logging.warning(
-                            "Received '%s' status for '%s' but company not found in sheet. "
-                            "From: %s | Subject: %s",
-                            job["status"], job["company"],
-                            job.get("email_from", "unknown"),
-                            job.get("email_subject", "unknown"),
+                            "Company '%s' not found in sheet for status '%s' — appending as new entry.",
+                            job["company"], job["status"]
                         )
+                        append_new_application(sheet=sheet, job=job)
                         continue
 
                     update_existing_application(sheet, job, table_values, company_applications)

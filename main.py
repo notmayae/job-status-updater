@@ -343,7 +343,21 @@ def main():
 
             for job in jobs_responses:
                 if job["status"] == "Applied":
-                    # New application — append as a new row
+                    # Before appending, check if this job+company already exists in the sheet
+                    # to avoid duplicates from multiple confirmation emails (e.g. LinkedIn)
+                    existing = sheet.values().get(
+                        spreadsheetId=SPREADSHEET_ID, range="Sheet1"
+                    ).execute().get("values", [])
+                    already_exists = any(
+                        row[0] == job["job"] and row[1] == job["company"]
+                        for row in existing if len(row) >= 2
+                    )
+                    if already_exists:
+                        logging.warning(
+                            "Duplicate detected — '%s' at '%s' already in sheet. Skipping.",
+                            job["job"], job["company"]
+                        )
+                        continue
                     append_new_application(sheet, job)
                 else:
                     # Status update — find the existing row and update it

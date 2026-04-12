@@ -15,6 +15,8 @@ from google.genai import types
 from dotenv import load_dotenv
 from bs4 import BeautifulSoup
 
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+
 from const import candidate_profile_system_instruction, jobs_emails_system_instruction, JOB_EMAIL_PATTERNS
 
 # ---------------------------------------------------------------------------
@@ -35,6 +37,36 @@ SCOPES = ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googlea
 # Find it in the sheet URL: docs.google.com/spreadsheets/d/<SPREADSHEET_ID>/
 # ---------------------------------------------------------------------------
 SPREADSHEET_ID = os.getenv("SPREADSHEET_ID")
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type(Exception),
+    before_sleep=lambda retry_state: logging.warning(
+        "Gemini request failed, retrying (attempt %d/3)...", retry_state.attempt_number
+    ),
+)
+def call_gemini(client: genai.Client, candidate_profile: dict, formatted_emails: str) -> list:
+    """
+    Sends a batch of emails + candidate profile to Gemini for classification.
+    Retries up to 3 times with exponential backoff on any exception.
+
+    Returns a list of job classification dicts.
+    """
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=f"""
+            CANDIDATE PERSONA: {candidate_profile}
+            EMAIL BATCH: {formatted_emails}
+        """,
+        config=types.GenerateContentConfig(
+            system_instruction=jobs_emails_system_instruction,
+            temperature=0.1,
+            response_mime_type="application/json",
+        ),
+    )
+    return json.loads(response.text)
 
 
 def get_candidate_profile(client: genai.Client) -> dict:
@@ -325,20 +357,12 @@ def main():
                 [f"--- EMAIL {i + 1} ---\n{text}" for i, text in enumerate(chunks)]
             )
 
-            # Send the email batch + candidate profile to Gemini for classification
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=f"""
-                    CANDIDATE PERSONA: {candidate_profile}
-                    EMAIL BATCH: {formatted_emails}
-                """,
-                config=types.GenerateContentConfig(
-                    system_instruction=jobs_emails_system_instruction,
-                    temperature=0.1,
-                    response_mime_type="application/json",
-                ),
-            )
-            jobs_responses = json.loads(response.text)
+            # Send the email batch to Gemini — retries up to 3 times on failure
+            try:
+                jobs_responses = call_gemini(client, candidate_profile, formatted_emails)
+            except Exception as e:
+                logging.error("Gemini failed after all retries, skipping batch: %s", e)
+                continue
             logging.info("Gemini returned %d job entries from this batch.", len(jobs_responses))
 
             for job in jobs_responses:

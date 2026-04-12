@@ -372,10 +372,22 @@ def main():
                     existing = sheet.values().get(
                         spreadsheetId=SPREADSHEET_ID, range="Sheet1"
                     ).execute().get("values", [])
-                    already_exists = any(
-                        row[0] == job["job"] and row[1] == job["company"]
-                        for row in existing if len(row) >= 2
-                    )
+                    # Vague titles Gemini uses when it can't determine the role —
+                    # in this case check by company only to avoid duplicates from
+                    # repeated emails where Gemini returns a different placeholder each time
+                    vague_titles = {"not specified", "unknown position", "unknown", "a position", "unspecified position", "unspecified"}
+                    job_is_vague = job["job"].strip().lower() in vague_titles
+
+                    if job_is_vague:
+                        already_exists = any(
+                            row[1].lower() == job["company"].lower()
+                            for row in existing if len(row) >= 2
+                        )
+                    else:
+                        already_exists = any(
+                            row[0].lower() == job["job"].lower() and row[1].lower() == job["company"].lower()
+                            for row in existing if len(row) >= 2
+                        )
                     if already_exists:
                         logging.warning(
                             "Duplicate detected — '%s' at '%s' already in sheet. Skipping.",
@@ -390,11 +402,13 @@ def main():
                     ).execute()
                     table_values = result.get("values", [])
 
-                    # Find all rows in the sheet that belong to this company
+                    # Find all rows in the sheet that belong to this company.
+                    # Uses contains check on both sides to handle partial name mismatches
+                    # (e.g. "Claroty" vs "Claroty LTD")
                     company_applications = [
                         {job["company"]: table_values.index(value)}
                         for value in table_values
-                        if job["company"] in value
+                        if any(job["company"] in cell or cell in job["company"] for cell in value)
                     ]
 
                     if not company_applications:

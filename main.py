@@ -360,8 +360,12 @@ def main():
                     ]
 
                     if not company_applications:
-                        # Company not in sheet at all — treat as new application
-                        append_new_application(sheet=sheet, job=job)
+                        # Company not in sheet — a non-Applied status for an unknown company
+                        # means we never tracked this application, so skip it.
+                        logging.warning(
+                            "Received '%s' status for '%s' but company not found in sheet. Skipping.",
+                            job["status"], job["company"]
+                        )
                         continue
 
                     update_existing_application(sheet, job, table_values, company_applications)

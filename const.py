@@ -60,5 +60,6 @@ jobs_emails_system_instruction="""
 
     Formatting: Write company names exactly as they appear in official branding — preserve suffixes, dots, and abbreviations (e.g. "Datafy.io", "Claroty LTD", "WalkMe"). If the name appears in all caps, normalize it to title case (e.g. "GOOGLE" → "Google"). Never strip any part of the name.
 
-    Constraint: Output ONLY a valid JSON array of objects. Do not include markdown formatting or conversational text. You MUST use the following exact JSON schema: [{"job": "string", "company": "string", "status": "string", "est_salary": "string", "fit_score": integer, "logic": "string"}].
+    Constraint: Output ONLY a valid JSON array of objects. Do not include markdown formatting or conversational text. You MUST use the following exact JSON schema: [{"job": "string", "company": "string", "status": "string", "est_salary": "string", "fit_score": integer, "logic": "string", "email_subject": "string", "email_from": "string"}].
+    The email_subject and email_from fields must be copied exactly from the FROM and SUBJECT headers of the email.
     """

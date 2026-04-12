@@ -228,7 +228,12 @@ def get_gmail_messages(service, messages_id: list) -> list:
     marketing/unsubscribe emails, and returns them in chunks of 10
     for batched Gemini processing.
 
-    Returns a list of chunks, where each chunk is a list of up to 10 email strings.
+    Each message is returned as a dict with:
+      - body: plain text content
+      - subject: email subject line
+      - sender: from address
+
+    Returns a list of chunks, where each chunk is a list of up to 10 message dicts.
     Returns an empty list if no relevant messages are found.
     """
     messages_body = []
@@ -237,6 +242,11 @@ def get_gmail_messages(service, messages_id: list) -> list:
         try:
             msg = service.users().messages().get(userId="me", id=message_id["id"]).execute()
             payload = msg.get("payload", {})
+
+            # Extract subject and sender from headers for logging/tracking
+            headers = {h["name"].lower(): h["value"] for h in payload.get("headers", [])}
+            subject = headers.get("subject", "")
+            sender = headers.get("from", "")
 
             # Extract raw base64-encoded body — either directly or from parts
             if "data" in payload.get("body", {}):
@@ -255,15 +265,15 @@ def get_gmail_messages(service, messages_id: list) -> list:
             # matches one of its known application-related patterns.
             # Platform patterns are defined in const.py → JOB_EMAIL_PATTERNS.
             if "unsubscribe" in body.lower():
-                headers = {h["name"].lower(): h["value"] for h in payload.get("headers", [])}
-                sender = headers.get("from", "").lower()
-                subject = headers.get("subject", "").lower()
-
-                domain = next((d for d in JOB_EMAIL_PATTERNS if d in sender), None)
-                if not domain or not any(p in subject for p in JOB_EMAIL_PATTERNS[domain]):
+                domain = next((d for d in JOB_EMAIL_PATTERNS if d in sender.lower()), None)
+                if not domain or not any(p in subject.lower() for p in JOB_EMAIL_PATTERNS[domain]):
                     continue
 
-            messages_body.append(BeautifulSoup(body, features="html.parser").get_text())
+            messages_body.append({
+                "body": BeautifulSoup(body, features="html.parser").get_text(),
+                "subject": subject,
+                "sender": sender,
+            })
 
         except (KeyError, IndexError) as e:
             logging.warning("Could not parse message %s: %s", message_id["id"], e)
@@ -353,9 +363,12 @@ def main():
         sheet = sheets_service.spreadsheets()
 
         for chunks in messages_chunks:
-            formatted_emails = "\n\n".join(
-                [f"--- EMAIL {i + 1} ---\n{text}" for i, text in enumerate(chunks)]
-            )
+            # Include subject and sender as headers in each email so Gemini has full context.
+            # Metadata is also kept separately for logging when a company can't be matched.
+            formatted_emails = "\n\n".join([
+                f"--- EMAIL {i + 1} ---\nFROM: {msg['sender']}\nSUBJECT: {msg['subject']}\n\n{msg['body']}"
+                for i, msg in enumerate(chunks)
+            ])
 
             # Send the email batch to Gemini — retries up to 3 times on failure
             try:
@@ -412,11 +425,14 @@ def main():
                     ]
 
                     if not company_applications:
-                        # Company not in sheet — a non-Applied status for an unknown company
-                        # means we never tracked this application, so skip it.
+                        # Company not in sheet — log email metadata so the user can find
+                        # the original email manually and add it to the sheet if needed.
                         logging.warning(
-                            "Received '%s' status for '%s' but company not found in sheet. Skipping.",
-                            job["status"], job["company"]
+                            "Received '%s' status for '%s' but company not found in sheet. "
+                            "From: %s | Subject: %s",
+                            job["status"], job["company"],
+                            job.get("email_from", "unknown"),
+                            job.get("email_subject", "unknown"),
                         )
                         continue
 

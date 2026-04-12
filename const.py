@@ -58,5 +58,7 @@ jobs_emails_system_instruction="""
 
     Filtering Constraint: If an email is NOT related to a job application or hiring process, completely ignore it. Do not include it in your output array. Only if the status is Applied include Salary Estimation and Fit Assesment.
 
-    Constraint: Output ONLY a valid JSON array of objects. Do not include markdown formatting or conversational text. You MUST use the following exact JSON schema: [{"job": "string", "company": "string", "status": "string", "est_salary": "string", "fit_score": integer, "logic": "string"}]. 
+    Formatting: Always write company names in title case (e.g. "Google", "Walk Me", "WalkMe"). Never use all caps or all lowercase.
+
+    Constraint: Output ONLY a valid JSON array of objects. Do not include markdown formatting or conversational text. You MUST use the following exact JSON schema: [{"job": "string", "company": "string", "status": "string", "est_salary": "string", "fit_score": integer, "logic": "string"}].
     """
